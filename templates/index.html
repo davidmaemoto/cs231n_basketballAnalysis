@@ -1,0 +1,477 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Video Marker Tool</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+
+        .container {
+            background-color: white;
+            padding: 20px;
+            border-radius: 5px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        }
+
+        h1 {
+            color: #333;
+            text-align: center;
+        }
+
+        .video-container {
+            position: relative;
+            margin-bottom: 20px;
+        }
+
+        video {
+            width: 100%;
+            background-color: black;
+        }
+
+        .controls {
+            margin: 15px 0;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+
+        .video-select {
+            width: 100%;
+            padding: 8px;
+            margin-bottom: 15px;
+            border-radius: 4px;
+            border: 1px solid #ddd;
+        }
+
+        button {
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            text-align: center;
+            text-decoration: none;
+            display: inline-block;
+            font-size: 14px;
+            margin: 4px 2px;
+            cursor: pointer;
+            border-radius: 4px;
+        }
+
+        button:disabled {
+            background-color: #cccccc;
+            cursor: not-allowed;
+        }
+
+        .timeline {
+            width: 100%;
+            height: 100px;
+            background-color: #eee;
+            position: relative;
+            margin-top: 20px;
+            border-radius: 4px;
+            overflow: hidden;
+        }
+
+        .timeline-inner {
+            position: relative;
+            height: 50px;
+            margin-top: 25px;
+            background-color: #ddd;
+        }
+
+        .timeline-marker {
+            position: absolute;
+            width: 2px;
+            height: 50px;
+            background-color: red;
+            top: 25px;
+            transform: translateY(-50%);
+        }
+
+        .timeline-current {
+            position: absolute;
+            width: 2px;
+            height: 100px;
+            background-color: blue;
+            top: 0;
+            left: 50%;
+        }
+
+        .markers-container {
+            margin-top: 20px;
+            max-height: 200px;
+            overflow-y: auto;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            padding: 10px;
+        }
+
+        .marker-item {
+            display: flex;
+            justify-content: space-between;
+            padding: 5px 0;
+            border-bottom: 1px solid #eee;
+        }
+
+        .marker-item:last-child {
+            border-bottom: none;
+        }
+
+        .key-controls {
+            background-color: #f9f9f9;
+            border: 1px solid #ddd;
+            padding: 10px;
+            margin-top: 20px;
+            border-radius: 4px;
+        }
+
+        .timeline-frame {
+            position: absolute;
+            width: 4px;
+            height: 30px;
+            background-color: rgba(0, 0, 0, 0.2);
+            top: 35px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Video Marker Tool</h1>
+
+        <select id="videoSelect" class="video-select">
+            <option value="">Select a video</option>
+        </select>
+
+        <div class="video-container">
+            <video id="videoPlayer" controls></video>
+        </div>
+
+        <div class="controls">
+            <div>
+                <button id="addMarkerBtn">Add Marker (Space)</button>
+                <button id="deleteMarkerBtn">Delete Selected Marker</button>
+                <button id="saveMarkersBtn">Save Markers</button>
+            </div>
+            <div>
+                <button id="prevMarkerBtn">Previous Marker</button>
+                <button id="nextMarkerBtn">Next Marker</button>
+            </div>
+        </div>
+
+        <div class="timeline" id="timeline">
+            <div class="timeline-inner" id="timelineInner"></div>
+            <div class="timeline-current"></div>
+        </div>
+
+        <div class="markers-container">
+            <h3>Markers <span id="markerCount">(0)</span></h3>
+            <div id="markersList"></div>
+        </div>
+
+        <div class="key-controls">
+            <h3>Keyboard Controls:</h3>
+            <ul>
+                <li><strong>Space</strong> - Add marker at current time</li>
+                <li><strong>Left/Right Arrows</strong> - Move 5 seconds backward/forward</li>
+                <li><strong>Shift + Left/Right</strong> - Move to previous/next marker</li>
+                <li><strong>Delete</strong> - Remove selected marker</li>
+                <li><strong>S</strong> - Save markers</li>
+            </ul>
+        </div>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            const videoSelect = document.getElementById('videoSelect');
+            const videoPlayer = document.getElementById('videoPlayer');
+            const addMarkerBtn = document.getElementById('addMarkerBtn');
+            const deleteMarkerBtn = document.getElementById('deleteMarkerBtn');
+            const saveMarkersBtn = document.getElementById('saveMarkersBtn');
+            const prevMarkerBtn = document.getElementById('prevMarkerBtn');
+            const nextMarkerBtn = document.getElementById('nextMarkerBtn');
+            const markersList = document.getElementById('markersList');
+            const markerCount = document.getElementById('markerCount');
+            const timeline = document.getElementById('timeline');
+            const timelineInner = document.getElementById('timelineInner');
+
+            let markers = [];
+            let selectedMarkerIndex = -1;
+            let currentVideo = '';
+
+            // Fetch available videos
+            fetch('/videos')
+                .then(response => response.json())
+                .then(videos => {
+                    videos.forEach(video => {
+                        const option = document.createElement('option');
+                        option.value = video;
+                        option.textContent = video;
+                        videoSelect.appendChild(option);
+                    });
+                });
+
+            // Video selection change
+            videoSelect.addEventListener('change', function() {
+                currentVideo = this.value;
+                if (currentVideo) {
+                    videoPlayer.src = `/video/${currentVideo}`;
+                    loadMarkers(currentVideo);
+                } else {
+                    videoPlayer.src = '';
+                    markers = [];
+                    updateMarkersList();
+                    updateTimeline();
+                }
+            });
+
+            // Load markers for a video
+            function loadMarkers(video) {
+                fetch(`/markers/${video}`)
+                    .then(response => response.json())
+                    .then(data => {
+                        markers = data;
+                        markers.sort((a, b) => a.time - b.time);
+                        selectedMarkerIndex = -1;
+                        updateMarkersList();
+                        updateTimeline();
+                    });
+            }
+
+            // Add marker at current time
+            function addMarker() {
+                if (!videoPlayer.src) return;
+
+                const time = videoPlayer.currentTime;
+
+                // Check if a marker already exists at this time (within 0.5 seconds)
+                const existingMarkerIndex = markers.findIndex(m => Math.abs(m.time - time) < 0.5);
+
+                if (existingMarkerIndex !== -1) {
+                    // Select the existing marker instead of creating a duplicate
+                    selectedMarkerIndex = existingMarkerIndex;
+                    updateMarkersList();
+                    return;
+                }
+
+                const newMarker = {
+                    time: time,
+                    label: formatTime(time)
+                };
+
+                markers.push(newMarker);
+                markers.sort((a, b) => a.time - b.time);
+
+                selectedMarkerIndex = markers.findIndex(m => m.time === time);
+                updateMarkersList();
+                updateTimeline();
+            }
+
+            // Delete selected marker
+            function deleteMarker() {
+                if (selectedMarkerIndex !== -1) {
+                    markers.splice(selectedMarkerIndex, 1);
+                    selectedMarkerIndex = -1;
+                    updateMarkersList();
+                    updateTimeline();
+                }
+            }
+
+            // Save markers
+            function saveMarkers() {
+                if (!currentVideo) return;
+
+                fetch(`/markers/${currentVideo}`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(markers),
+                })
+                .then(response => response.json())
+                .then(data => {
+                    alert('Markers saved successfully!');
+                })
+                .catch(error => {
+                    console.error('Error saving markers:', error);
+                    alert('Error saving markers');
+                });
+            }
+
+            // Format time as MM:SS.ms
+            function formatTime(seconds) {
+                const min = Math.floor(seconds / 60);
+                const sec = Math.floor(seconds % 60);
+                const ms = Math.floor((seconds % 1) * 1000);
+
+                return `${min.toString().padStart(2, '0')}:${sec.toString().padStart(2, '0')}.${ms.toString().padStart(3, '0')}`;
+            }
+
+            // Update markers list in UI
+            function updateMarkersList() {
+                markersList.innerHTML = '';
+                markerCount.textContent = `(${markers.length})`;
+
+                markers.forEach((marker, index) => {
+                    const div = document.createElement('div');
+                    div.className = 'marker-item';
+                    div.innerHTML = `
+                        <span>${index + 1}. ${marker.label}</span>
+                        <button class="goto-marker">Go to</button>
+                    `;
+
+                    if (index === selectedMarkerIndex) {
+                        div.style.backgroundColor = '#ffffcc';
+                    }
+
+                    div.querySelector('.goto-marker').addEventListener('click', function() {
+                        videoPlayer.currentTime = marker.time;
+                        selectedMarkerIndex = index;
+                        updateMarkersList();
+                    });
+
+                    div.addEventListener('click', function() {
+                        selectedMarkerIndex = index;
+                        updateMarkersList();
+                    });
+
+                    markersList.appendChild(div);
+                });
+            }
+
+            // Update timeline visualization
+            function updateTimeline() {
+                // Clear existing elements
+                timelineInner.innerHTML = '';
+
+                if (!videoPlayer.duration) return;
+
+                // Add frames (tick marks)
+                const totalSeconds = Math.floor(videoPlayer.duration);
+                const frameInterval = 5; // Show a frame mark every 5 seconds
+
+                for (let i = 0; i < totalSeconds; i += frameInterval) {
+                    const frameMarker = document.createElement('div');
+                    frameMarker.className = 'timeline-frame';
+                    frameMarker.style.left = `${(i / videoPlayer.duration) * 100}%`;
+                    timelineInner.appendChild(frameMarker);
+                }
+
+                // Add markers to timeline
+                markers.forEach(marker => {
+                    const markerEl = document.createElement('div');
+                    markerEl.className = 'timeline-marker';
+                    markerEl.style.left = `${(marker.time / videoPlayer.duration) * 100}%`;
+                    timelineInner.appendChild(markerEl);
+                });
+            }
+
+            // Navigate to previous/next marker
+            function goToPrevMarker() {
+                if (markers.length === 0) return;
+
+                const currentTime = videoPlayer.currentTime;
+                let prevIndex = markers.findIndex(marker => marker.time >= currentTime) - 1;
+
+                if (prevIndex < 0) {
+                    prevIndex = markers.length - 1; // Wrap around to the last marker
+                }
+
+                videoPlayer.currentTime = markers[prevIndex].time;
+                selectedMarkerIndex = prevIndex;
+                updateMarkersList();
+            }
+
+            function goToNextMarker() {
+                if (markers.length === 0) return;
+
+                const currentTime = videoPlayer.currentTime;
+                let nextIndex = markers.findIndex(marker => marker.time > currentTime);
+
+                if (nextIndex === -1) {
+                    nextIndex = 0; // Wrap around to the first marker
+                }
+
+                videoPlayer.currentTime = markers[nextIndex].time;
+                selectedMarkerIndex = nextIndex;
+                updateMarkersList();
+            }
+
+            // Button event listeners
+            addMarkerBtn.addEventListener('click', addMarker);
+            deleteMarkerBtn.addEventListener('click', deleteMarker);
+            saveMarkersBtn.addEventListener('click', saveMarkers);
+            prevMarkerBtn.addEventListener('click', goToPrevMarker);
+            nextMarkerBtn.addEventListener('click', goToNextMarker);
+
+            // Video event listeners
+            videoPlayer.addEventListener('loadedmetadata', updateTimeline);
+            videoPlayer.addEventListener('timeupdate', function() {
+                const position = (videoPlayer.currentTime / videoPlayer.duration) * 100;
+                document.querySelector('.timeline-current').style.left = `${position}%`;
+            });
+
+            // Timeline clicking
+            timeline.addEventListener('click', function(e) {
+                if (!videoPlayer.duration) return;
+
+                const rect = timeline.getBoundingClientRect();
+                const position = (e.clientX - rect.left) / rect.width;
+                videoPlayer.currentTime = position * videoPlayer.duration;
+            });
+
+            // Keyboard shortcuts
+            document.addEventListener('keydown', function(e) {
+                // Only process if video is loaded
+                if (!videoPlayer.src) return;
+
+                switch (e.code) {
+                    case 'Space':
+                        e.preventDefault(); // Prevent default space behavior (play/pause)
+                        addMarker();
+                        break;
+
+                    case 'ArrowLeft':
+                        if (e.shiftKey) {
+                            goToPrevMarker();
+                        } else {
+                            videoPlayer.currentTime -= 5;
+                        }
+                        break;
+
+                    case 'ArrowRight':
+                        if (e.shiftKey) {
+                            goToNextMarker();
+                        } else {
+                            videoPlayer.currentTime += 5;
+                        }
+                        break;
+
+                    case 'Delete':
+                    case 'Backspace':
+                        if (selectedMarkerIndex !== -1) {
+                            deleteMarker();
+                        }
+                        break;
+
+                    case 'KeyS':
+                        if (e.ctrlKey || e.metaKey) {
+                            e.preventDefault(); // Prevent browser save
+                            saveMarkers();
+                        } else if (!e.ctrlKey && !e.altKey && !e.metaKey) {
+                            saveMarkers();
+                        }
+                        break;
+                }
+            });
+        });
+    </script>
+</body>
+</html>
